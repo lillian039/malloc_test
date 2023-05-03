@@ -55,7 +55,7 @@
 #define DSIZE 8 // double word size
 #define INFORSIZE 24
 #define CHUNKSIZE (1<<8) // extend heap by this size
-#define MAXLIST 8
+#define MAXLIST 20
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -83,20 +83,13 @@
 #define NEXT_LISTP(bp) ((bp) ? GET_P(SUCC(bp)) : 0)
 #define PREV_LISTP(bp) ((bp) ? GET_P(PRED(bp)) : 0)
 
-static char *heap_listp, *free_head[8];
+static char *heap_listp, *free_head[MAXLIST];
 
 static inline int get_head(size_t size){
    // size_t size = GET_SIZE(HDRP(bp));
-   
-    if(size <= (1 << 4))return 0;
-    else if(size <= (1 << 6))return 1;
-    else if(size <= (1 << 8))return 2;
-    else if(size <= (1 << 10))return 3;
-    else if(size <= (1 << 12))return 4;
-    else if(size <= (1 << 14))return 5;
-    else if(size <= (1 << 16))return 6;
-    else return 7;
-
+    int i = 0;
+    for( ; i < MAXLIST; i++)if(size <= (size_t)(48 << i))return i;
+    return MAXLIST-1;
 }
 static inline void remove_bp(void *bp){
     int head = get_head(GET_SIZE(HDRP(bp)));
@@ -180,7 +173,7 @@ int mm_init(void)
 
     PUT(heap_listp + (7 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
-    for(int i = 0; i < 8; i++)free_head[i] = 0;
+    for(int i = 0; i < MAXLIST; i++)free_head[i] = 0;
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
 
     return 0;
@@ -216,7 +209,7 @@ static inline void *find_fit(size_t asize){
         bp = (char *)NEXT_LISTP(bp);
     }
     for(int i = head + 1; i < MAXLIST; i++){
-        char* bp = free_head[i];
+        bp = free_head[i];
         if (bp != 0)return bp;
     }
     // puts("finish find fit");
@@ -252,10 +245,7 @@ void *malloc(size_t size)
  *      Computers have big memories; surely it won't be a problem.
  */
 void free(void *ptr){
-    //puts("free");
     if (ptr < mem_heap_lo() || ptr > mem_heap_hi()) return;
-    // if(GET_ALLOC(HDRP(ptr)) == 0)return;
-
     /*Get gcc to be quiet */
     size_t size = GET_SIZE(HDRP(ptr));
 
