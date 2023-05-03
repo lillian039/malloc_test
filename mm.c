@@ -55,6 +55,7 @@
 #define DSIZE 8 // double word size
 #define INFORSIZE 24
 #define CHUNKSIZE (1<<8) // extend heap by this size
+#define MAXLIST 8
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -86,13 +87,14 @@ static char *heap_listp, *free_head[8];
 
 static inline int get_head(size_t size){
    // size_t size = GET_SIZE(HDRP(bp));
-    if(size <= (1 << 3))return 0;
-    else if(size <= (1 << 5))return 1;
-    else if(size <= (1 << 7))return 2;
-    else if(size <= (1 << 9))return 3;
-    else if(size <= (1 << 11))return 4;
-    else if(size <= (1 << 13))return 5;
-    else if(size <= (1 << 15))return 6;
+   
+    if(size <= (1 << 4))return 0;
+    else if(size <= (1 << 6))return 1;
+    else if(size <= (1 << 8))return 2;
+    else if(size <= (1 << 10))return 3;
+    else if(size <= (1 << 12))return 4;
+    else if(size <= (1 << 14))return 5;
+    else if(size <= (1 << 16))return 6;
     else return 7;
 
 }
@@ -213,7 +215,7 @@ static inline void *find_fit(size_t asize){
         if(size >= asize)return bp;
         bp = (char *)NEXT_LISTP(bp);
     }
-    for(int i = head + 1; i < 8; i++){
+    for(int i = head + 1; i < MAXLIST; i++){
         char* bp = free_head[i];
         if (bp != 0)return bp;
     }
