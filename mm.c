@@ -194,12 +194,12 @@ static void place(void *bp, size_t asize){
         PUT(FTRP(bp), PACK(size, 1));
     }
     else{
+        remove_bp(bp);
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
         void *remain_bp = NEXT_BLKP(bp);
         PUT(HDRP(remain_bp), PACK(remain_size, 0));
         PUT(FTRP(remain_bp), PACK(remain_size, 0));
-        remove_bp(bp);
         put_bp(remain_bp);
     }
 }
