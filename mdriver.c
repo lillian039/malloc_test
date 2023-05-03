@@ -31,7 +31,7 @@
  **********************/
 
 /* OJ */
-// #define OJ
+#define OJ
 
 /* Misc */
 #define MAXLINE     1024 /* max string size */
@@ -203,11 +203,8 @@ static void run_tests(int num_tracefiles, char trace_from_stdin,
 		stats_t *mm_stats, range_t *ranges, speed_t *speed_params) {
 	volatile int i;
 	volatile int timed_out = 0;
-	puts("run test");
-	printf("%d\n",num_tracefiles);
 
 	for (i=0; i < num_tracefiles; i++) {
-		printf("%d round:\n",i);
 		/* handle timeouts */
 		if(setjmp(timeout_jmpbuf) != 0) {
 			timed_out = 1;
@@ -380,7 +377,6 @@ int main(int argc, char **argv)
 	/*
 	 * Optionally run and evaluate the libc malloc package
 	 */
-	printf("start: verbose: %d\n",verbose);
 	if (run_libc) {
 		if (verbose > 1)
 			printf("\nTesting libc malloc\n");
@@ -422,17 +418,14 @@ int main(int argc, char **argv)
 	if (verbose > 1)
 		printf("\nTesting mm malloc\n");
 
-	puts("calloc");
-
 	/* Allocate the mm stats array, with one stats_t struct per tracefile */
 	mm_stats = (stats_t *)calloc(num_tracefiles, sizeof(stats_t));
 	if (mm_stats == NULL)
 		unix_error("mm_stats calloc in main failed");
 
 	/* Initialize the simulated memory system in memlib.c */
-	puts("mem_init");
 	mem_init();
-	puts("finish_init");
+
 	run_tests(num_tracefiles, trace_from_stdin, tracedir, tracefiles,
 			mm_stats, ranges, &speed_params);
 
@@ -600,12 +593,12 @@ static void remove_range(range_t **ranges, char *lo)
 {
 	range_t *p;
 	range_t **prevpp = ranges;
-	int size;
+	// int size;
 
 	for (p = *ranges;  p != NULL; p = p->next) {
 		if (p->lo == lo) {
 			*prevpp = p->next;
-			size = p->hi - p->lo + 1;
+			// size = p->hi - p->lo + 1;
 			free(p);
 			break;
 		}
@@ -720,10 +713,10 @@ static trace_t *read_trace(stats_t *stats, const char *tracedir,
 	if ((tracefile = fopen(trace->filename, "r")) == NULL) {
 		unix_error("Could not open %s in read_trace", trace->filename);
 	}
-	fscanf(tracefile, "%d", &trace->weight);
-	fscanf(tracefile, "%d", &trace->num_ids);
-	fscanf(tracefile, "%d", &trace->num_ops);
-	fscanf(tracefile, "%d", &trace->ignore_ranges);
+	if (fscanf(tracefile, "%d", &trace->weight)) {}
+	if (fscanf(tracefile, "%d", &trace->num_ids)) {}
+	if (fscanf(tracefile, "%d", &trace->num_ops)) {}
+	if (fscanf(tracefile, "%d", &trace->ignore_ranges)) {}
 
 	if(trace->weight != 0 && trace->weight != 1) {
 		app_error("%s: weight can only be zero or one", trace->filename);
@@ -759,21 +752,21 @@ static trace_t *read_trace(stats_t *stats, const char *tracedir,
 	while (fscanf(tracefile, "%s", type) != EOF) {
 		switch(type[0]) {
 			case 'a':
-				fscanf(tracefile, "%u %u", &index, &size);
+				if (fscanf(tracefile, "%u %u", &index, &size)) {}
 				trace->ops[op_index].type = ALLOC;
 				trace->ops[op_index].index = index;
 				trace->ops[op_index].size = size;
 				max_index = (index > max_index) ? index : max_index;
 				break;
 			case 'r':
-				fscanf(tracefile, "%u %u", &index, &size);
+				if (fscanf(tracefile, "%u %u", &index, &size)) {}
 				trace->ops[op_index].type = REALLOC;
 				trace->ops[op_index].index = index;
 				trace->ops[op_index].size = size;
 				max_index = (index > max_index) ? index : max_index;
 				break;
 			case 'f':
-				fscanf(tracefile, "%ud", &index);
+				if (fscanf(tracefile, "%ud", &index)) {}
 				trace->ops[op_index].type = FREE;
 				trace->ops[op_index].index = index;
 				break;
@@ -819,10 +812,10 @@ static trace_t *read_trace_stdin(stats_t *stats)
 	strcpy(trace->filename, "stdin");
 	tracefile = stdin;
 
-	fscanf(tracefile, "%d", &trace->weight);
-	fscanf(tracefile, "%d", &trace->num_ids);
-	fscanf(tracefile, "%d", &trace->num_ops);
-	fscanf(tracefile, "%d", &trace->ignore_ranges);
+	if (fscanf(tracefile, "%d", &trace->weight)) {}
+	if (fscanf(tracefile, "%d", &trace->num_ids)) {}
+	if (fscanf(tracefile, "%d", &trace->num_ops)) {}
+	if (fscanf(tracefile, "%d", &trace->ignore_ranges)) {}
 
 	if(trace->weight != 0 && trace->weight != 1) {
 		app_error("%s: weight can only be zero or one", trace->filename);
@@ -858,21 +851,21 @@ static trace_t *read_trace_stdin(stats_t *stats)
 	while (fscanf(tracefile, "%s", type) != EOF) {
 		switch(type[0]) {
 			case 'a':
-				fscanf(tracefile, "%u %u", &index, &size);
+				if (fscanf(tracefile, "%u %u", &index, &size)) {}
 				trace->ops[op_index].type = ALLOC;
 				trace->ops[op_index].index = index;
 				trace->ops[op_index].size = size;
 				max_index = (index > max_index) ? index : max_index;
 				break;
 			case 'r':
-				fscanf(tracefile, "%u %u", &index, &size);
+				if (fscanf(tracefile, "%u %u", &index, &size)) {}
 				trace->ops[op_index].type = REALLOC;
 				trace->ops[op_index].index = index;
 				trace->ops[op_index].size = size;
 				max_index = (index > max_index) ? index : max_index;
 				break;
 			case 'f':
-				fscanf(tracefile, "%ud", &index);
+				if (fscanf(tracefile, "%ud", &index)) {}
 				trace->ops[op_index].type = FREE;
 				trace->ops[op_index].index = index;
 				break;

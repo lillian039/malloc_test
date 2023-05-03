@@ -64,28 +64,17 @@
 
 //I think bp is the ptr exactly after header
 //I think size include context and footer and header
-//#define HDRP(bp) ((char *)bp - WSIZE) //header ptr
-//#define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - DSIZE) //footer ptr
+#define HDRP(bp) ((char *)bp - WSIZE) //header ptr
+#define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - DSIZE) //footer ptr
 
-#define HDRP(bp) ((char *)bp - 3 * WSIZE)
-#define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - 4 * WSIZE)
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
-//#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-//#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
-
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((HDRP(bp) - WSIZE)))
-
-#define NEXT_LISTP(bp) (GET((char *)(bp) - WSIZE))
-#define PREV_LISTP(bp) (GET((char *)(bp) - DSIZE))
-
-static char *heap_listp, *next_p;
+static char *heap_listp;
 
 static void *coalesce(void *bp){
     //puts("coalesce");
     //printf("%ld\n",GET(bp));
-    char *prev_p = PREV_BLKP(bp);
-    char *nxt_p = NEXT_BLKP(bp);
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
@@ -147,7 +136,6 @@ int mm_init(void)
     PUT(heap_listp + (3 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
-    next_p = heap_listp;
     //puts("finish mm_init");
     //mm_checkheap(0);
     return 0;
@@ -170,13 +158,10 @@ static void place(void *bp, size_t asize){
 
 static void *find_fit(size_t asize){
     //puts("find fit");
-    char* bp = next_p;
+    char* bp = heap_listp;
     size_t size = GET_SIZE(HDRP(bp));
     while(size > 0){
-        if(size >= asize && !GET_ALLOC(HDRP(bp))){
-            next_p = bp;
-            return bp;
-        }
+        if(size >= asize && !GET_ALLOC(HDRP(bp)))return bp;
         bp = NEXT_BLKP(bp);
         size = GET_SIZE(HDRP(bp));
     }
@@ -209,8 +194,7 @@ void *malloc(size_t size)
     //No fit found. Get more memory and place the block
     extendsize = MAX(asize, CHUNKSIZE);
     if((bp = extend_heap(extendsize / WSIZE)) == NULL)return NULL;
-        place(bp, asize);
-        next_p = bp;
+    place(bp, asize);
     }
 
     //printf("malloc bp: %ld\n",bp);
