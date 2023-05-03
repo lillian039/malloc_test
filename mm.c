@@ -84,7 +84,7 @@
 
 static char *heap_listp, *free_head[8];
 
-static int get_head(size_t size){
+static inline int get_head(size_t size){
    // size_t size = GET_SIZE(HDRP(bp));
     if(size <= (1 << 4))return 0;
     else if(size <= (1 << 6))return 1;
@@ -96,14 +96,14 @@ static int get_head(size_t size){
     else return 7;
 
 }
-static void remove_bp(void *bp){
+static inline void remove_bp(void *bp){
     int head = get_head(GET_SIZE(HDRP(bp)));
     PUT_P(SUCC(PREV_LISTP(bp)),NEXT_LISTP(bp));
     PUT_P(PRED(NEXT_LISTP(bp)),PREV_LISTP(bp));
     if(bp == free_head[head])free_head[head] = (char *)NEXT_LISTP(free_head[head]);
 }
 
-static void put_bp(void *bp){
+static inline void put_bp(void *bp){
     int head = get_head(GET_SIZE(HDRP(bp)));
     PUT_P(SUCC(bp),free_head[head]);
     PUT_P(PRED(bp),0);
@@ -111,7 +111,7 @@ static void put_bp(void *bp){
     free_head[head] = bp;
 }
 
-static void *coalesce(void *bp){
+static inline void *coalesce(void *bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
@@ -146,7 +146,7 @@ static void *coalesce(void *bp){
   
 }
 
-static void *extend_heap(size_t words){
+static inline void *extend_heap(size_t words){
     char *bp;
     size_t size;
 
@@ -185,7 +185,7 @@ int mm_init(void)
     return 0;
 }
 
-static void place(void *bp, size_t asize){
+static inline void place(void *bp, size_t asize){
     size_t size = GET_SIZE(HDRP(bp));
     size_t remain_size = size - asize;
     if(remain_size <= INFORSIZE){ 
@@ -204,7 +204,7 @@ static void place(void *bp, size_t asize){
     }
 }
 
-static void *find_fit(size_t asize){
+static inline void *find_fit(size_t asize){
     //puts("find fit");
     int head = get_head(asize);
     char* bp = free_head[head];
@@ -216,12 +216,7 @@ static void *find_fit(size_t asize){
     }
     for(int i = head + 1; i < 8; i++){
         char* bp = free_head[i];
-        size_t size;
-        while(bp != 0){
-            size = GET_SIZE(HDRP(bp));
-            if(size >= asize)return bp;
-            bp = (char *)NEXT_LISTP(bp);
-        }
+        if (bp != 0)return bp;
     }
     // puts("finish find fit");
     return NULL;
@@ -240,7 +235,7 @@ void *malloc(size_t size)
     if(size == 0)return NULL;
     
     //adjust block size
-    asize = ALIGN(MAX(size + INFORSIZE ,INFORSIZE + DSIZE));
+    asize = ALIGN(MAX(size + DSIZE ,INFORSIZE));
     if((bp = find_fit(asize)) != NULL)place(bp, asize);
     else {
         //No fit found. Get more memory and place the block
