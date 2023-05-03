@@ -54,7 +54,7 @@
 #define WSIZE 4 // word + footer/header size
 #define DSIZE 8 // double word size
 #define INFORSIZE 24
-#define CHUNKSIZE (1<<12) // extend heap by this size
+#define CHUNKSIZE (1<<8) // extend heap by this size
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -179,7 +179,6 @@ int mm_init(void)
     PUT(heap_listp + (7 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
     for(int i = 0; i < 8; i++)free_head[i] = 0;
-
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
 
     return 0;
