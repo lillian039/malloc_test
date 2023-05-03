@@ -49,6 +49,8 @@
 #define SIZE_PTR(p)  ((size_t*)(((char*)(p)) - SIZE_T_SIZE))
 //todo as follow
 
+//
+
 #define WSIZE 4 // word + footer/header size
 #define DSIZE 8 // double word size
 #define INFORSIZE 24
@@ -80,19 +82,34 @@
 #define NEXT_LISTP(bp) ((bp) ? GET_P(SUCC(bp)) : 0)
 #define PREV_LISTP(bp) ((bp) ? GET_P(PRED(bp)) : 0)
 
-static char *heap_listp, *free_head;
+static char *heap_listp, *free_head[8];
 
+static int get_head(size_t size){
+   // size_t size = GET_SIZE(HDRP(bp));
+    if(size <= (1 << 4))return 0;
+    else if(size <= (1 << 6))return 1;
+    else if(size <= (1 << 8))return 2;
+    else if(size <= (1 << 10))return 3;
+    else if(size <= (1 << 12))return 4;
+    else if(size <= (1 << 14))return 5;
+    else if(size <= (1 << 16))return 6;
+    else if(size <= (1 << 18))return 7;
+    else return 8;
+
+}
 static void remove_bp(void *bp){
+    int head = get_head(GET_SIZE(HDRP(bp)));
     PUT_P(SUCC(PREV_LISTP(bp)),NEXT_LISTP(bp));
     PUT_P(PRED(NEXT_LISTP(bp)),PREV_LISTP(bp));
-    if(bp == free_head)free_head = (char *)NEXT_LISTP(free_head);
+    if(bp == free_head[head])free_head[head] = (char *)NEXT_LISTP(free_head[head]);
 }
 
 static void put_bp(void *bp){
-    PUT_P(SUCC(bp),free_head);
+    int head = get_head(GET_SIZE(HDRP(bp)));
+    PUT_P(SUCC(bp),free_head[head]);
     PUT_P(PRED(bp),0);
-    PUT_P(PRED(free_head),bp);
-    free_head = bp;
+    PUT_P(PRED(free_head[head]),bp);
+    free_head[head] = bp;
 }
 
 static void *coalesce(void *bp){
@@ -162,7 +179,7 @@ int mm_init(void)
 
     PUT(heap_listp + (7 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
-    free_head = 0;
+    for(int i = 0; i < 8; i++)free_head[i] = 0;
 
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
 
@@ -190,12 +207,22 @@ static void place(void *bp, size_t asize){
 
 static void *find_fit(size_t asize){
     //puts("find fit");
-    char* bp = free_head;
+    int head = get_head(asize);
+    char* bp = free_head[head];
     size_t size;
     while(bp != 0){
         size = GET_SIZE(HDRP(bp));
         if(size >= asize)return bp;
         bp = (char *)NEXT_LISTP(bp);
+    }
+    for(int i = head + 1; i < 8; i++){
+        char* bp = free_head[i];
+        size_t size;
+        while(bp != 0){
+            size = GET_SIZE(HDRP(bp));
+            if(size >= asize)return bp;
+            bp = (char *)NEXT_LISTP(bp);
+        }
     }
     // puts("finish find fit");
     return NULL;
@@ -306,12 +333,9 @@ void *calloc (size_t nmemb, size_t size)
  *      so nah!
  */
 void mm_checkheap(int verbose){
-    char* bp = heap_listp;
-    size_t size = GET_SIZE(HDRP(bp));
-    int alloccc;
     if(verbose == 1){ //traverse free list
         printf("free list:\n");
-        char* bp = free_head;
+        char* bp = free_head[0];
         int cnt = 0;
         size_t size;
         while(bp != 0){
@@ -324,15 +348,18 @@ void mm_checkheap(int verbose){
         puts("finish check free list");
     }
     else if(verbose == 2){ //traverse whole list
+        char* bp = heap_listp;
+        int alloc;
+        size_t size = GET_SIZE(HDRP(bp));
         printf("heap list: %ld size: %lu\n",(size_t)bp,size);
         int cnt = 0;
         while(size > 0){
             cnt++;
             bp = NEXT_BLKP(bp);
             size = GET_SIZE(HDRP(bp));
-            alloccc = GET_ALLOC(HDRP(bp));
+            alloc = GET_ALLOC(HDRP(bp));
             printf("block:%d address: %ld size: %lu next_list: %lu prev_list: %lu next_block: %lu prev_block : %lu alloc :%d\n",
-            cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp),alloccc);
+            cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp),alloc);
         }
         puts("finish check heap list");
     }
