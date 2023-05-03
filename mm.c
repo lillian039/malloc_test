@@ -93,8 +93,7 @@ static int get_head(size_t size){
     else if(size <= (1 << 12))return 4;
     else if(size <= (1 << 14))return 5;
     else if(size <= (1 << 16))return 6;
-    else if(size <= (1 << 18))return 7;
-    else return 8;
+    else return 7;
 
 }
 static void remove_bp(void *bp){
