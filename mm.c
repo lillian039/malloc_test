@@ -52,7 +52,7 @@
 #define WSIZE 4 // word + footer/header size
 #define DSIZE 8 // double word size
 #define INFORSIZE 24
-#define CHUNKSIZE (1<<12) // extend heap by this size
+#define CHUNKSIZE (1<<16) // extend heap by this size
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -67,19 +67,11 @@
 #define GET_SIZE(p) (GET(p) & ~0x7) //size of block
 #define GET_ALLOC(p) (GET(p) & 0x1) //whether alloc
 
-//I think bp is the ptr exactly after header
-//I think size include context and footer and header
-//#define HDRP(bp) ((char *)bp - WSIZE) //header ptr
-//#define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - DSIZE) //footer ptr
-
 #define HDRP(bp) ((char *)bp - WSIZE)
 #define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - DSIZE)
 
 #define PRED(bp) ((bp) ? (char *)(bp) : 0)
 #define SUCC(bp) ((bp) ? (char *)(bp) + DSIZE : 0)
-
-//#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-//#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((HDRP(bp) - WSIZE)))
@@ -89,20 +81,20 @@
 
 static char *heap_listp, *free_head;
 
-static void remove_bp(void *bp){
+static inline void remove_bp(void *bp){
     PUT_P(SUCC(PREV_LISTP(bp)),NEXT_LISTP(bp));
     PUT_P(PRED(NEXT_LISTP(bp)),PREV_LISTP(bp));
     if(bp == free_head)free_head = NEXT_LISTP(free_head);
 }
 
-static void put_bp(void *bp){
+static inline void put_bp(void *bp){
     PUT_P(SUCC(bp),free_head);
     PUT_P(PRED(bp),0);
     PUT_P(PRED(free_head),bp);
     free_head = bp;
 }
 
-static void *coalesce(void *bp){
+static inline void *coalesce(void *bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
 
@@ -137,7 +129,7 @@ static void *coalesce(void *bp){
   
 }
 
-static void *extend_heap(size_t words){
+static inline void *extend_heap(size_t words){
     char *bp;
     size_t size;
 
@@ -176,7 +168,7 @@ int mm_init(void)
     return 0;
 }
 
-static void place(void *bp, size_t asize){
+static inline void place(void *bp, size_t asize){
     //printf("place %lu\n",(char *)bp);
     size_t size = GET_SIZE(HDRP(bp));
     size_t remain_size = size - asize;
@@ -196,7 +188,7 @@ static void place(void *bp, size_t asize){
     }
 }
 
-static void *find_fit(size_t asize){
+static inline void *find_fit(size_t asize){
     //puts("find fit");
     char* bp = free_head;
     size_t size;
