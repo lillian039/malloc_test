@@ -56,6 +56,7 @@
 #define INFORSIZE 24
 #define CHUNKSIZE (1<<8) // extend heap by this size
 #define MAXLIST 20
+#define MINSIZE 48
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -83,12 +84,11 @@
 #define NEXT_LISTP(bp) ((bp) ? GET_P(SUCC(bp)) : 0)
 #define PREV_LISTP(bp) ((bp) ? GET_P(PRED(bp)) : 0)
 
-static char *heap_listp, *free_head[MAXLIST];
+static char *heap_listp,*epilogue, *free_head[MAXLIST];
 
 static inline int get_head(size_t size){
-   // size_t size = GET_SIZE(HDRP(bp));
     int i = 0;
-    for( ; i < MAXLIST; i++)if(size <= (size_t)(48 << i))return i;
+    for( ; i < MAXLIST; i++)if(size <= (size_t)(MINSIZE << i))return i;
     return MAXLIST-1;
 }
 static inline void remove_bp(void *bp){
@@ -152,6 +152,7 @@ static inline void *extend_heap(size_t words){
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)),PACK(0, 1));
+    epilogue = NEXT_BLKP(bp);
     //coalesce if the previous block was free
     return coalesce(bp);
 }
@@ -159,7 +160,7 @@ static inline void *extend_heap(size_t words){
 /*
  * mm_init - Called when a new trace starts.
  */
-// prologue block 序言块，只有头部与脚部组成，大小为 1 word
+// prologue block 序言块，只有头部,脚部,pred succ 组成，大小为 6 word
 // epilogue block 结尾块 大小为 0 的已分配块，仅有头组成
 int mm_init(void)
 {
@@ -173,6 +174,7 @@ int mm_init(void)
 
     PUT(heap_listp + (7 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
+    epilogue = heap_listp + (8 * WSIZE);
     for(int i = 0; i < MAXLIST; i++)free_head[i] = 0;
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
 
@@ -236,6 +238,7 @@ void *malloc(size_t size)
         extendsize = MAX(asize, CHUNKSIZE);
         if((bp = extend_heap(extendsize / WSIZE)) == NULL)return NULL;
         place(bp, asize);
+        //mm_checkheap(0);
     }
     return bp;
 }
@@ -317,8 +320,24 @@ void *calloc (size_t nmemb, size_t size)
  * mm_checkheap - There are no bugs in my code, so I don't need to check,
  *      so nah!
  */
+/*
+const I use: 
+ALIGNMENT 8
+WSIZE 4
+DSIZE 8
+INFORSIZE 24
+CHUNKSIZE (1<<8) // extend heap by this size
+MAXLIST 20
+MINSIZE 48
+*/
 void mm_checkheap(int verbose){
-    if(verbose == 1){ //traverse free list
+    if(verbose == 0){
+        printf("prologue: header: %lu footer: %lu alloc: %d size: %u \n",
+        (size_t)HDRP(heap_listp),(size_t)FTRP(heap_listp),GET_ALLOC(HDRP(heap_listp)), GET_SIZE(HDRP(heap_listp)));
+        printf("epilogue: header: %lu alloc: %d size: %u\n",(size_t)HDRP(epilogue),GET_ALLOC(HDRP(epilogue)),GET_SIZE(HDRP(epilogue)));
+
+    }
+    else if(verbose == 1){ //traverse free list
         printf("free list:\n");
         char* bp = free_head[0];
         int cnt = 0;
@@ -347,5 +366,98 @@ void mm_checkheap(int verbose){
             cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp),alloc);
         }
         puts("finish check heap list");
+    }
+    else if(verbose == 3){ //check boundry
+        //puts("check boundry");
+        char* bp = heap_listp;
+        size_t size = GET_SIZE(HDRP(bp));
+        while(size > 0){
+            if((size_t)bp < (size_t)mem_heap_lo() || (size_t)bp > (size_t)mem_heap_hi()){
+                puts("illegal ptr");
+                exit(0);
+            }
+            bp = NEXT_BLKP(bp);
+            size = GET_SIZE(HDRP(bp));
+        }
+    }
+    else if(verbose == 4){ //check header and footer
+        //puts("check header and footer");
+        char* bp = heap_listp;
+        size_t size_h = GET_SIZE(HDRP(bp));
+        size_t size_f = GET_SIZE(FTRP(bp));
+        size_t alloc_h = GET_ALLOC(HDRP(bp));
+        size_t alloc_f = GET_ALLOC(FTRP(bp));
+        while(size_h > 0){
+            if(size_h != size_f){
+                puts("size unmatch");
+                exit(0);
+            }
+            if(alloc_f != alloc_h){
+                puts("alloc unmatch");
+                exit(0);
+            }
+            bp = NEXT_BLKP(bp);
+            size_h = GET_SIZE(HDRP(bp));
+            size_f = GET_SIZE(FTRP(bp));
+            alloc_h = GET_ALLOC(HDRP(bp));
+            alloc_f = GET_ALLOC(FTRP(bp));
+        }
+    }
+    else if(verbose == 5){//check if there is two adjacent free block
+        //puts("check free block");
+        char* prev = heap_listp;
+        char* now = NEXT_BLKP(heap_listp);
+        size_t size = GET_SIZE(HDRP(now));
+        while(size > 0){
+            if(!GET_ALLOC(HDRP(prev)) && !GET_ALLOC(HDRP(now))){
+                puts("two adjacent free block!");
+                exit(0);
+            }
+            prev = NEXT_BLKP(prev);
+            now = NEXT_BLKP(now);
+            size = GET_SIZE(HDRP(now));
+        }
+    }
+    else if(verbose == 6){ //check pred and succ
+        for(int i = 0; i < MAXLIST; i++){
+            if(free_head[i] == 0)return;
+            char *prev = free_head[i];
+            char *now = (char *)NEXT_LISTP(prev);
+            while(now != 0){
+                size_t succ = NEXT_LISTP(prev);
+                size_t pred = PREV_LISTP(now);
+                if(succ != (size_t)now || pred != (size_t)prev){
+                    puts("pred succ not match!");
+                    exit(0);
+                }
+                now = (char *)NEXT_LISTP(now);
+                prev = (char *)NEXT_LISTP(prev);
+            }
+        }
+    }
+    else if(verbose == 7){//check if ptr in free list are in boundry
+        for(int i = 0; i < MAXLIST; i++){
+            char *bp = free_head[i];
+            while(bp != 0){
+                if((size_t)bp < (size_t)mem_heap_lo() || (size_t)bp > (size_t)mem_heap_hi()){
+                    puts("illegal ptr");
+                    exit(0);
+                }
+                bp = (char *)NEXT_LISTP(bp);
+            }
+        }
+    }
+    else if(verbose == 8){
+        for(int i = 0; i < MAXLIST; i++){
+            char *bp = free_head[i];
+            while(bp != 0){
+                size_t size = GET_SIZE(HDRP(bp));
+                if(size > (size_t)(MINSIZE<< i) || (i > 0 && size <= (size_t)(MINSIZE << (i-1)))){
+                    puts("size unmatch");
+                    exit(0);
+                }
+                bp = (char *)NEXT_LISTP(bp);
+            }
+        }
     }
 }
