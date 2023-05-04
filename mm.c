@@ -1,13 +1,33 @@
 /*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
- *
- * In this naive approach, a block is allocated by simply incrementing
- * the brk pointer.  Blocks are never coalesced or reused.  The size of
- * a block is found at the first aligned word before the block (we need
- * it for realloc).
- *
- * This code is correct and blazingly fast, but very bad usage-wise since
- * it never frees anything.
+    Use explicit allocator, LIFO strategy and segregated fit
+
+    The structure of my empty block:
+
+    === header (4 byte) === (size | alloc) alloc = 0
+    === succ   (8 byte) === the location of next ptr on free list
+    === prev   (8 byte) === the location of prev ptr on free list
+    ===      block      === 
+    === footer (4 byte) === (size | alloc) alloc = 0
+        
+
+    The structure of my allocated block:
+
+    === header (4 byte) === (size | alloc) alloc = 1
+    ===       bp        === 
+    ===      block      ===
+    === footer (4 byte) === (size | alloc) alloc = 1
+
+    The structure of free list:
+
+    I have MAXLIST size of free_list
+    The free_list[i] collect all free block (48 << (i-1)) <= size <= (48 << i)
+    if free_list[i] is empty, then free_list[i] = 0
+
+    The operation of free_list:
+    (1) get_head (size_t size): get the ptr's free list match it size
+    (2) remove_bp (void *bp): remove bp from the free list it size match
+    (3) put_bp (void *bp): put bp on the free list it size match
+
  */
 #include <assert.h>
 #include <stdio.h>
@@ -47,9 +67,6 @@
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 #define SIZE_PTR(p)  ((size_t*)(((char*)(p)) - SIZE_T_SIZE))
-//todo as follow
-
-//
 
 #define WSIZE 4 // word + footer/header size
 #define DSIZE 8 // double word size
@@ -65,6 +82,7 @@
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
+//if bp == 0 then do nothing
 #define PUT_P(p, val) ((p) ? *(size_t *)(p) = (size_t)(val) : 0)
 #define GET_P(p) ((p)? *(size_t *)(p) : 0)
 
@@ -75,22 +93,30 @@
 #define HDRP(bp) ((char *)bp - WSIZE)
 #define FTRP(bp) ((char *)bp + GET_SIZE(HDRP(bp)) - DSIZE)
 
+//if bp == 0 then do nothing
 #define PRED(bp) ((bp) ? (char *)(bp) : 0)
 #define SUCC(bp) ((bp) ? (char *)(bp) + DSIZE : 0)
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((HDRP(bp) - WSIZE)))
 
+//if bp == 0 then do nothing
 #define NEXT_LISTP(bp) ((bp) ? GET_P(SUCC(bp)) : 0)
 #define PREV_LISTP(bp) ((bp) ? GET_P(PRED(bp)) : 0)
 
 static char *heap_listp,*epilogue, *free_head[MAXLIST];
 
+/*
+    use size to determine which free_list it should be in
+*/
 static inline int get_head(size_t size){
     int i = 0;
     for( ; i < MAXLIST; i++)if(size <= (size_t)(MINSIZE << i))return i;
     return MAXLIST-1;
 }
+/*
+    remove ptr from the free_list match it size
+*/
 static inline void remove_bp(void *bp){
     int head = get_head(GET_SIZE(HDRP(bp)));
     PUT_P(SUCC(PREV_LISTP(bp)),NEXT_LISTP(bp));
@@ -98,6 +124,10 @@ static inline void remove_bp(void *bp){
     if(bp == free_head[head])free_head[head] = (char *)NEXT_LISTP(free_head[head]);
 }
 
+/*  
+    put ptr on the free_list match it size
+    Always put it in head
+*/
 static inline void put_bp(void *bp){
     int head = get_head(GET_SIZE(HDRP(bp)));
     PUT_P(SUCC(bp),free_head[head]);
@@ -106,6 +136,11 @@ static inline void put_bp(void *bp){
     free_head[head] = bp;
 }
 
+/*
+    find if bp can coalesce with its prev block and next block
+    If it prev or next can coalesce, then remove it from free_list  
+    coalesce them, and then put it back into free_list
+*/
 static inline void *coalesce(void *bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
@@ -141,6 +176,12 @@ static inline void *coalesce(void *bp){
   
 }
 
+/*
+    extend heap by size words
+    set new block's size and let it be free block
+    update new epilogue
+    try to coalesce it with existed free block
+*/
 static inline void *extend_heap(size_t words){
     char *bp;
     size_t size;
@@ -158,14 +199,14 @@ static inline void *extend_heap(size_t words){
 }
 
 /*
- * mm_init - Called when a new trace starts.
- */
-// prologue block 序言块，只有头部,脚部,pred succ 组成，大小为 6 word
-// epilogue block 结尾块 大小为 0 的已分配块，仅有头组成
+    mm_init - Called when a new trace starts.
+    prologue block, with header, footer, pred, succ, alloc = 1, with total size 6 words
+    epilogue block, only with header, size 0, alloca = 1
+    initialize free_head[i] into empty part
+*/
 int mm_init(void)
 {
-    //puts("mm_init");
-    heap_listp = mem_sbrk(8 * WSIZE);// 初始化头，只含 header footer pred succ 尾 只含有 header pred
+    heap_listp = mem_sbrk(8 * WSIZE);
     PUT(heap_listp, 0);
     PUT(heap_listp + (1 * WSIZE), PACK(INFORSIZE, 1)); // prologue header
     PUT_P(heap_listp + (2 * WSIZE), 0); // prologue pred
@@ -181,6 +222,13 @@ int mm_init(void)
     return 0;
 }
 
+/*
+    place ptr of asize in bp
+    If bp's remain is already less larger the size we need to put header,footer,pred_ptr,succ_ptr,
+    then return the whole bp
+    Otherwise, seperate bp in two part, one return for asize, and the remained part stay free and put back
+    into free list.
+*/
 static inline void place(void *bp, size_t asize){
     size_t size = GET_SIZE(HDRP(bp));
     size_t remain_size = size - asize;
@@ -200,6 +248,13 @@ static inline void place(void *bp, size_t asize){
     }
 }
 
+/*
+    find the block can put asize
+    first find free list with (48 << (i-1)) <= size <= (48 << i)
+    if there no match block, then find i+1 free list
+    if i+1 free list is empty, then keep finding i+2
+    if all larger free list is empty, it means there is no match free block, return null
+*/
 static inline void *find_fit(size_t asize){
     //puts("find fit");
     int head = get_head(asize);
@@ -219,8 +274,11 @@ static inline void *find_fit(size_t asize){
 }
 
 /*
- * malloc - Allocate a block by incrementing the brk pointer.
- *      Always allocate a block whose size is a multiple of the alignment.
+    malloc - Allocate a block by incrementing the brk pointer.
+    Add header and footer to size, and make the final size larger than the total size of footer,header,pred_ptr,succ_ptr
+    Always allocate a block whose size is a multiple of the alignment.
+    If we successfully find the fit free block, then place asize in bp.
+    Otherwise, choose to extend heap, then we get the free block we want
  */
 void *malloc(size_t size)
 {
@@ -238,14 +296,14 @@ void *malloc(size_t size)
         extendsize = MAX(asize, CHUNKSIZE);
         if((bp = extend_heap(extendsize / WSIZE)) == NULL)return NULL;
         place(bp, asize);
-        //mm_checkheap(0);
     }
     return bp;
 }
 
 /*
- * free - We don't know how to free a block.  So we ignore this call.
- *      Computers have big memories; surely it won't be a problem.
+    Firstly check if ptr is in heap boundry.
+    Update the ptr's station to free
+    Try to coalesce it with free block adjacent to it
  */
 void free(void *ptr){
     if (ptr < mem_heap_lo() || ptr > mem_heap_hi()) return;
@@ -258,13 +316,11 @@ void free(void *ptr){
 }
 
 /*
- * realloc - Change the size of the block by mallocing a new block,
- *      copying its data, and freeing the old block.  I'm too lazy
- *      to do better.
+    realloc - Change the size of the block by mallocing a new block,
+    copying its data, and freeing the old block. 
  */
 void *realloc(void *oldptr, size_t size)
 {
-    //puts("realloc");
     size_t oldsize;
     void *newptr;
 
@@ -275,16 +331,11 @@ void *realloc(void *oldptr, size_t size)
     }
 
     /* If oldptr is NULL, then this is just malloc. */
-    if(oldptr == NULL) {
-        return malloc(size);
-    }
-
+    if(oldptr == NULL)return malloc(size);
     newptr = malloc(size);
 
     /* If realloc() fails the original block is left untouched  */
-    if(!newptr) {
-        return 0;
-    }
+    if(!newptr)return 0;
 
     /* Copy the old data. */
     oldsize = *SIZE_PTR(oldptr);
@@ -293,53 +344,48 @@ void *realloc(void *oldptr, size_t size)
 
     /* Free the old block. */
     free(oldptr);
-    //puts("finish realloc");
-
     return newptr;
 }
 
 /*
- * calloc - Allocate the block and set it to zero.
+    calloc - Allocate the block and set it to zero.
  */
 void *calloc (size_t nmemb, size_t size)
 {
-    //puts("calloc");
-
     size_t bytes = nmemb * size;
     void *newptr;
-
     newptr = malloc(bytes);
     memset(newptr, 0, bytes);
-
-    //puts("finish calloc");
-
     return newptr;
 }
 
 /*
- * mm_checkheap - There are no bugs in my code, so I don't need to check,
- *      so nah!
- */
-/*
-const I use: 
-ALIGNMENT 8
-WSIZE 4
-DSIZE 8
-INFORSIZE 24
-CHUNKSIZE (1<<8) // extend heap by this size
-MAXLIST 20
-MINSIZE 48
+    const I use: 
+    ALIGNMENT 8
+    WSIZE 4
+    DSIZE 8
+    INFORSIZE 24
+    CHUNKSIZE (1<<8)
+    MAXLIST 20
+    MINSIZE 48
+
+    check heap
+    Each verbose is one kind of checking method
 */
 void mm_checkheap(int verbose){
+    // check prologue and epilogue
     if(verbose == 0){
         printf("prologue: header: %lu footer: %lu alloc: %d size: %u \n",
         (size_t)HDRP(heap_listp),(size_t)FTRP(heap_listp),GET_ALLOC(HDRP(heap_listp)), GET_SIZE(HDRP(heap_listp)));
         printf("epilogue: header: %lu alloc: %d size: %u\n",(size_t)HDRP(epilogue),GET_ALLOC(HDRP(epilogue)),GET_SIZE(HDRP(epilogue)));
 
     }
-    else if(verbose == 1){ //traverse free list
-        printf("free list:\n");
-        char* bp = free_head[0];
+    // traverse free list
+    else if(verbose == 1){ 
+        for(int i = 0; i < MAXLIST; i++)
+        {
+        printf("free list: %d \n",i);
+        char* bp = free_head[i];
         int cnt = 0;
         size_t size;
         while(bp != 0){
@@ -349,9 +395,11 @@ void mm_checkheap(int verbose){
             cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp));
             bp = (char *)NEXT_LISTP(bp);
         }
+        }
         puts("finish check free list");
     }
-    else if(verbose == 2){ //traverse whole list
+    // traverse whole heap list
+    else if(verbose == 2){ 
         char* bp = heap_listp;
         int alloc;
         size_t size = GET_SIZE(HDRP(bp));
@@ -367,7 +415,8 @@ void mm_checkheap(int verbose){
         }
         puts("finish check heap list");
     }
-    else if(verbose == 3){ //check boundry
+    // check whether all ptr in heap list are in heap boundry
+    else if(verbose == 3){ 
         //puts("check boundry");
         char* bp = heap_listp;
         size_t size = GET_SIZE(HDRP(bp));
@@ -380,7 +429,8 @@ void mm_checkheap(int verbose){
             size = GET_SIZE(HDRP(bp));
         }
     }
-    else if(verbose == 4){ //check header and footer
+    // check all ptr in heap list's header and footer's size and allcate station
+    else if(verbose == 4){ 
         //puts("check header and footer");
         char* bp = heap_listp;
         size_t size_h = GET_SIZE(HDRP(bp));
@@ -403,7 +453,8 @@ void mm_checkheap(int verbose){
             alloc_f = GET_ALLOC(FTRP(bp));
         }
     }
-    else if(verbose == 5){//check if there is two adjacent free block
+    // check if there is two adjacent free block
+    else if(verbose == 5){
         //puts("check free block");
         char* prev = heap_listp;
         char* now = NEXT_BLKP(heap_listp);
@@ -418,7 +469,8 @@ void mm_checkheap(int verbose){
             size = GET_SIZE(HDRP(now));
         }
     }
-    else if(verbose == 6){ //check pred and succ
+    // check all ptr in free list's pred and succ
+    else if(verbose == 6){ 
         for(int i = 0; i < MAXLIST; i++){
             if(free_head[i] == 0)return;
             char *prev = free_head[i];
@@ -435,7 +487,8 @@ void mm_checkheap(int verbose){
             }
         }
     }
-    else if(verbose == 7){//check if ptr in free list are in boundry
+    // check if all ptr in free list are in boundry
+    else if(verbose == 7){
         for(int i = 0; i < MAXLIST; i++){
             char *bp = free_head[i];
             while(bp != 0){
@@ -447,6 +500,7 @@ void mm_checkheap(int verbose){
             }
         }
     }
+    // check if ptr are in the correct free list match its size
     else if(verbose == 8){
         for(int i = 0; i < MAXLIST; i++){
             char *bp = free_head[i];
@@ -458,6 +512,30 @@ void mm_checkheap(int verbose){
                 }
                 bp = (char *)NEXT_LISTP(bp);
             }
+        }
+    }
+    // iterating over each block and traversing the free linked list through the pointer to see if they match
+    else if(verbose == 9){
+        int free_cnt = 0;
+        for (size_t id = 0; id < MAXLIST; id++){
+            char *bp = free_head[id];
+            while(bp){
+                free_cnt++;
+                if (GET_ALLOC(HDRP(bp))){
+                    printf("block: %lu are allocated, but is in the free list\n", (size_t)(bp));
+                    exit(0);
+                }
+                bp = (char *)NEXT_LISTP(bp);
+            }
+        }
+        char *bp = heap_listp;
+        while(GET_SIZE(HDRP(bp))){
+            if (!GET_ALLOC(HDRP(bp))) free_cnt--;
+            bp = NEXT_BLKP(bp);
+        }
+        if (free_cnt){
+            puts("free block size different in free list and total list");
+            exit(0);
         }
     }
 }
