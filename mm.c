@@ -70,10 +70,10 @@
 
 #define WSIZE 4 // word + footer/header size
 #define DSIZE 8 // double word size
-#define INFORSIZE 24
+#define INFORSIZE 16
 #define CHUNKSIZE (1<<8) // extend heap by this size
 #define MAXLIST 20
-#define MINSIZE 48
+#define MINSIZE INFORSIZE
 
 #define MAX(x, y) (x > y ? x : y)
 //pack size and allocated bit into a word
@@ -83,8 +83,8 @@
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
 //if bp == 0 then do nothing
-#define PUT_P(p, val) ((p) ? *(size_t *)(p) = (size_t)(val) : 0)
-#define GET_P(p) ((p)? *(size_t *)(p) : 0)
+#define PUT_P(p, val) ((p) ? (*(unsigned int *)(p) = val ? ((unsigned int)((char *)(val) - heap_listp)) : 0) : 0)
+#define GET_P(p) ((p)? (GET(p) ? (GET(p) + heap_listp) : 0) : 0)
 
 #define GET_SIZE(p) (GET(p) & ~0x7) //size of block
 #define GET_ALLOC(p) (GET(p) & 0x1) //whether alloc
@@ -95,7 +95,7 @@
 
 //if bp == 0 then do nothing
 #define PRED(bp) ((bp) ? (char *)(bp) : 0)
-#define SUCC(bp) ((bp) ? (char *)(bp) + DSIZE : 0)
+#define SUCC(bp) ((bp) ? (char *)(bp) + WSIZE : 0)
 
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE((HDRP(bp) - WSIZE)))
@@ -206,16 +206,16 @@ static inline void *extend_heap(size_t words){
 */
 int mm_init(void)
 {
-    heap_listp = mem_sbrk(8 * WSIZE);
+    heap_listp = mem_sbrk(6 * WSIZE);
     PUT(heap_listp, 0);
     PUT(heap_listp + (1 * WSIZE), PACK(INFORSIZE, 1)); // prologue header
-    PUT_P(heap_listp + (2 * WSIZE), 0); // prologue pred
-    PUT_P(heap_listp + (4 * WSIZE), 0); // prologue succ
-    PUT(heap_listp + (6 * WSIZE), PACK(INFORSIZE, 1)); // prologue footer
-
-    PUT(heap_listp + (7 * WSIZE), PACK(0,1));// epilogue header
     heap_listp += 2 * WSIZE;
-    epilogue = heap_listp + (8 * WSIZE);
+    PUT_P(heap_listp, 0); // prologue pred
+    PUT_P(heap_listp + WSIZE, 0); // prologue succ
+    PUT(heap_listp + (2 * WSIZE), PACK(INFORSIZE, 1)); // prologue footer
+
+    PUT(heap_listp + (3 * WSIZE), PACK(0,1));// epilogue header
+    epilogue = heap_listp + (3 * WSIZE);
     for(int i = 0; i < MAXLIST; i++)free_head[i] = 0;
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL)return -1;
 
@@ -392,7 +392,7 @@ void mm_checkheap(int verbose){
             cnt++;
             size = GET_SIZE(HDRP(bp));
             printf("block:%d address: %ld size: %lu next_list: %lu prev_list: %lu next_block: %lu prev_block : %lu\n",
-            cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp));
+            cnt,(size_t)bp,size,(size_t)NEXT_LISTP(bp), (size_t)PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp));
             bp = (char *)NEXT_LISTP(bp);
         }
         }
@@ -411,7 +411,7 @@ void mm_checkheap(int verbose){
             size = GET_SIZE(HDRP(bp));
             alloc = GET_ALLOC(HDRP(bp));
             printf("block:%d address: %ld size: %lu next_list: %lu prev_list: %lu next_block: %lu prev_block : %lu alloc :%d\n",
-            cnt,(size_t)bp,size,NEXT_LISTP(bp), PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp),alloc);
+            cnt,(size_t)bp,size,(size_t)NEXT_LISTP(bp), (size_t)PREV_LISTP(bp), (size_t)NEXT_BLKP(bp),(size_t)PREV_BLKP(bp),alloc);
         }
         puts("finish check heap list");
     }
@@ -476,9 +476,9 @@ void mm_checkheap(int verbose){
             char *prev = free_head[i];
             char *now = (char *)NEXT_LISTP(prev);
             while(now != 0){
-                size_t succ = NEXT_LISTP(prev);
-                size_t pred = PREV_LISTP(now);
-                if(succ != (size_t)now || pred != (size_t)prev){
+                char * succ = NEXT_LISTP(prev);
+                char * pred = PREV_LISTP(now);
+                if(succ != now || pred != prev){
                     puts("pred succ not match!");
                     exit(0);
                 }
